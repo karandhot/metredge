@@ -130,66 +130,114 @@ type contractArtifact struct {
 	DeployedBytecode []byte
 }
 
-func generateContractArtifact(filepath string) (*contractArtifact, error) {
-	var (
-		artifact *contractArtifact
-		err      error
-	)
-
-	/* Read contract json file */
-	jsonFile, err := os.Open(filepath)
+func (c *contractArtifact) loadFromFile(filepath string) error {
+	file, err := os.Open(filepath)
 	if err != nil {
-		return artifact, err
+		return err
 	}
 
-	jsonRaw, err := ioutil.ReadAll(jsonFile)
+	bytes, err := ioutil.ReadAll(file)
 	if err != nil {
-		return artifact, err
+		return err
 	}
 
-	var jsonResult map[string]interface{}
-	if err = json.Unmarshal(jsonRaw, &jsonResult); err != nil {
-		return artifact, err
+	var fileJSON map[string]interface{}
+	if err := json.Unmarshal(bytes, &fileJSON); err != nil {
+		return err
 	}
 
 	/*	parse abi */
-	abiRaw, ok := jsonResult["abi"]
-	if !ok {
-		panic("bad")
-	}
-
-	abiBytes, err := json.Marshal(abiRaw)
-	if err != nil {
-		panic("bad marshal")
+	if err := c.setABI(fileJSON); err != nil {
+		return err
 	}
 
 	/*	parse bytecode */
-	bytecode, ok := jsonResult["bytecode"].(string)
+	if err := c.setBytecode(fileJSON); err != nil {
+		return err
+	}
+
+	/*	parse deployed bytecode */
+	if err := c.setDeployedBytecode(fileJSON); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *contractArtifact) setABI(jsonMap map[string]interface{}) error {
+	rawABI, ok := jsonMap["contractABI"]
 	if !ok {
 		panic("bad")
 	}
 
-	hexBytecode, err := hex.DecodeString(strings.TrimPrefix(bytecode, "0x"))
+	contractABI, err := json.Marshal(rawABI)
 	if err != nil {
-		panic("bad decode bad")
+		return err
 	}
 
-	/*	parse deployed bytecode */
-	deployedBytecode, ok := jsonResult["deployedBytecode"].(string)
+	c.ABI = contractABI
+
+	return nil
+}
+
+func (c *contractArtifact) setBytecode(jsonMap map[string]interface{}) error {
+	rawBytecode, ok := jsonMap["bytecode"].(string)
+	if !ok {
+		panic("bad")
+	}
+
+	bytecode, err := hex.DecodeString(strings.TrimPrefix(rawBytecode, "0x"))
+	if err != nil {
+		return err
+	}
+
+	c.Bytecode = bytecode
+
+	return nil
+}
+
+func (c *contractArtifact) setDeployedBytecode(jsonMap map[string]interface{}) error {
+	rawDeployedBytecode, ok := jsonMap["deployedBytecode"].(string)
 	if !ok {
 		panic("bad ")
 	}
 
-	hexDeployedBytecode, err := hex.DecodeString(strings.TrimPrefix(deployedBytecode, "0x"))
+	deployedBytecode, err := hex.DecodeString(strings.TrimPrefix(rawDeployedBytecode, "0x"))
 	if err != nil {
-		panic("bad hex real bytecode")
+		return err
 	}
 
-	//	set the artifact fields
-	artifact = &contractArtifact{
-		ABI:              abiBytes,
-		Bytecode:         hexBytecode,
-		DeployedBytecode: hexDeployedBytecode,
+	c.DeployedBytecode = deployedBytecode
+
+	return nil
+}
+
+func (c *contractArtifact) encodeCustomConstructor(params ...interface{}) []byte {
+	//	generate bytecode with custom constructor
+	contractABI, err := abi.NewABI(string(c.ABI))
+	if err != nil {
+		return nil
+	}
+
+	//	#2: verify contract satisfies required interface
+	//	TODO: maybe this should/must be done in generateContractArtifact
+
+	constructor, err := abi.Encode(
+		params,
+		contractABI.Constructor.Inputs)
+	if err != nil {
+		return nil
+	}
+
+	finalBytecode := append(c.Bytecode, constructor...)
+
+	return finalBytecode
+}
+
+func generateContractArtifact(filepath string) (*contractArtifact, error) {
+	artifact := new(contractArtifact)
+	if err := artifact.loadFromFile(filepath); err != nil {
+		return nil, err
 	}
 
 	return artifact, nil
@@ -200,32 +248,16 @@ func GenerateGenesisAccountFromFile(
 	filepath string,
 	constructorParams []interface{},
 ) (*chain.GenesisAccount, error) {
-	//	#1: generate contract bytecode based on json file
+	//	#1: generate artifact from json file
 	artifact, err := generateContractArtifact(filepath)
 	if err != nil {
 		return nil, err
 	}
 
-	//	generate bytecode with custom constructor
-	contractABI, err := abi.NewABI(string(artifact.ABI))
-	if err != nil {
-		return nil, err
-	}
+	// 	#2: encode custom constructor values to generate bytecode
+	customBytecode := artifact.encodeCustomConstructor(constructorParams)
 
-	constructor, err := abi.Encode(
-		constructorParams,
-		contractABI.Constructor.Inputs,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	//	#2: verify contract satisfies required interface
-	//	TODO: maybe this should/must be done in generateContractArtifact
-
-	finalBytecode := append(artifact.Bytecode, constructor...)
-
-	//	TODO (milos): obtain config from somewhere
+	//	TODO (milos): where does config come from ?
 	config := chain.ForksInTime{
 		Homestead:      true,
 		Byzantium:      true,
@@ -238,13 +270,12 @@ func GenerateGenesisAccountFromFile(
 	}
 
 	//	#3: generate genesis account based on contract bytecode
-	memState := itrie.NewState(itrie.NewMemoryStorage())
-
 	contractAccount, err := state.GenerateContractAccount(
 		config,
-		memState,
+		itrie.NewState(itrie.NewMemoryStorage()),
 		staking.AddrStakingContract,
-		finalBytecode)
+		customBytecode,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate contract account - err: %w", err)
 	}
