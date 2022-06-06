@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/umbracle/go-web3/abi"
+	"github.com/umbracle/ethgo/abi"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
