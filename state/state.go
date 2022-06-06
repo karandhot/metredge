@@ -240,16 +240,17 @@ func GenerateContractAccount(
 
 	// walk the state and collect storage
 	storageEntries := make(map[types.Hash]types.Hash)
+
 	transition.state.txn.Root().Walk(func(k []byte, v interface{}) bool {
 		accountAddress := types.BytesToAddress(k)
 		if accountAddress != contractAddress {
 			return false
 		}
 
-		obj := v.(*StateObject)
+		obj := v.(*StateObject) //nolint:forcetypeassert
 		obj.Txn.Root().Walk(func(k []byte, v interface{}) bool {
 			key := types.BytesToHash(k)
-			value := types.BytesToHash(v.([]byte))
+			value := types.BytesToHash(v.([]byte)) //nolint:forcetypeassert
 
 			storageEntries[key] = value
 
