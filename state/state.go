@@ -196,9 +196,9 @@ type StorageObject struct {
 
 func GenerateContractAccount(
 	config chain.ForksInTime,
-	state State,
 	contractAddress types.Address,
 	contractBytecode []byte,
+	state State,
 ) (*chain.GenesisAccount, error) {
 	//	genesis account fields generated with the contract
 	var (
