@@ -286,17 +286,6 @@ func (p *genesisParams) initGenesisConfig() error {
 	}
 
 	// Premine accounts
-	//	TODO (milos): see if you still need this
-	stakingAccount, err := stakingHelper.GenerateGenesisAccountFromFile(
-		"./Greeter.json",
-		[]interface{}{"yoshiki"},
-	)
-	if err != nil {
-		return err
-	}
-
-	chainConfig.Genesis.Alloc[staking.AddrStakingContract] = stakingAccount
-
 	if err := fillPremineMap(chainConfig.Genesis.Alloc, p.premine); err != nil {
 		return err
 	}
